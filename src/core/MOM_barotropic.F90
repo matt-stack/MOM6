@@ -2837,6 +2837,7 @@ subroutine btcalc(h, G, GV, CS, h_u, h_v, may_use_default, OBC)
 !$OMP parallel do default(none) shared(is,ie,js,je,nz,h_u,CS,h_neglect,h,use_default,G,GV) &
 !$OMP                          private(hatutot,Ihatutot,e_u,D_shallow_u,h_arith,h_harm,wt_arith)
 
+! !$acc parallel loop private(hatutot,Ihatutot,e_u,D_shallow_u,h_arith,h_harm,wt_arith)
   do j=js,je
     if (present(h_u)) then
       do I=is-1,ie ; hatutot(I) = h_u(I,j,1) ; enddo
@@ -2897,9 +2898,13 @@ subroutine btcalc(h, G, GV, CS, h_u, h_v, may_use_default, OBC)
       enddo ; enddo
     endif
   enddo
+! !$acc end parallel
 
 !$OMP parallel do default(none) shared(is,ie,js,je,nz,CS,G,GV,h_v,h_neglect,h,use_default) &
 !$OMP                          private(hatvtot,Ihatvtot,e_v,D_shallow_v,h_arith,h_harm,wt_arith)
+
+
+! !$acc parallel loop private(hatvtot,Ihatvtot,e_v,D_shallow_v,h_arith,h_harm,wt_arith)
   do J=js-1,je
     if (present(h_v)) then
       do i=is,ie ; hatvtot(i) = h_v(i,J,1) ; enddo
@@ -2960,6 +2965,7 @@ subroutine btcalc(h, G, GV, CS, h_u, h_v, may_use_default, OBC)
       enddo ; enddo
     endif
   enddo
+! !$acc end parallel
 
   if (apply_OBCs) then ; do n=1,OBC%number_of_segments ! Test for segment type?
     if (.not. OBC%segment(n)%on_pe) cycle
@@ -3670,6 +3676,7 @@ subroutine bt_mass_source(h, eta, set_cor, G, GV, CS)
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = G%ke
 
   !$OMP parallel do default(shared) private(eta_h,h_tot,d_eta)
+! !$acc parallel loop private(eta_h,h_tot,d_eta)
   do j=js,je
     do i=is,ie ; h_tot(i) = h(i,j,1) ; enddo
     if (GV%Boussinesq) then
@@ -3694,6 +3701,7 @@ subroutine bt_mass_source(h, eta, set_cor, G, GV, CS)
       enddo
     endif
   enddo
+! !$acc end parallel
 
 end subroutine bt_mass_source
 
