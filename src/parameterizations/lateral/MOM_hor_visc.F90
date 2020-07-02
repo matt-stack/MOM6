@@ -346,6 +346,180 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
   integer :: is, ie, js, je, Isq, Ieq, Jsq, Jeq, nz
   integer :: i, j, k, n
   real :: inv_PI3, inv_PI2, inv_PI5
+
+
+!-------------start of horizontal_viscosity temporary gpu arrays------------------------
+!NAMING: use _gpu for these temps ex: CS%q becomes  CS_q_gpu
+  !G%mask2dCu -> G_mask2dCu_GPU
+  real, allocatable, dimension (:,:):: G_mask2dCu_GPU
+  !G%mask2dCv -> G_mask2dCv_GPU
+  real, allocatable, dimension (:,:):: G_mask2dCv_GPU
+  !G%mask2dBu -> G_mask2dBu_GPU
+  real, allocatable, dimension (:,:):: G_mask2dBu_GPU
+  !G%mask2dT -> G_mask2dT_GPU
+  real, allocatable, dimension (:,:):: G_mask2dT_GPU
+  !G%IdxCu -> G_IdxCu_GPU
+  real, allocatable, dimension (:,:):: G_IdxCu_GPU
+  !G%IdxCv -> G_IdxCv_GPU
+  real, allocatable, dimension (:,:):: G_IdxCv_GPU
+  !G%IdyCu -> G_IdyCu_GPU
+  real, allocatable, dimension (:,:):: G_IdyCu_GPU
+  !G%IdyCv -> G_IdyCv_GPU
+  real, allocatable, dimension (:,:):: G_IdyCv_GPU
+  !G%IdxBu -> G_IdxBu_GPU
+  real, allocatable, dimension (:,:):: G_IdxBu_GPU
+  !G%IdyBu -> G_IdyBu_GPU
+  real, allocatable, dimension (:,:):: G_IdyBu_GPU
+  !G%dxBu -> G_dxBu_GPU
+  real, allocatable, dimension (:,:):: G_dxBu_GPU
+  !G%dyBu -> G_dyBu_GPU
+  real, allocatable, dimension (:,:):: G_dyBu_GPU
+  !G%dF_dx -> G_dF_dx_GPU
+  real, allocatable, dimension (:,:):: G_dF_dx_GPU
+  !G%dF_dy -> G_dF_dy_GPU
+  real, allocatable, dimension (:,:):: G_dF_dy_GPU
+
+
+
+  !CS%DX_dyT -> CS_DX_dyT_GPU
+  real, allocatable, dimension (:,:):: CS_DX_dyT_GPU
+  !CS%DY_dxT -> CS_DY_dxT_GPU
+  real, allocatable, dimension (:,:):: CS_DY_dxT_GPU
+  !CS%DX_dyBu -> CS_DX_dyBu_GPU
+  real, allocatable, dimension (:,:):: CS_DX_dyBu_GPU
+  !CS%DY_dxBu -> CS_DY_dxBu_GPU
+  real, allocatable, dimension (:,:):: CS_DY_dxBu_GPU
+
+
+
+
+!ALLOCATE a temporary array (workaround for structures)
+  !G_mask2dCu_GPU
+  allocate(G_mask2dCu_GPU(size(G%mask2dCu,1),size(G%mask2dCu,2)))
+  !G_mask2dCv_GPU
+  allocate(G_mask2dCv_GPU(size(G%mask2dCv,1),size(G%mask2dCv,2)))
+  !G_mask2dBu_GPU
+  allocate(G_mask2dBu_GPU(size(G%mask2dBu,1),size(G%mask2dBu,2)))
+  !G_mask2dT_GPU
+  allocate(G_mask2dT_GPU(size(G%mask2dT,1),size(G%mask2dT,2)))
+  !G_IdxCu_GPU
+  allocate(G_IdxCu_GPU(size(G%IdxCu,1),size(G%IdxCu,2)))
+  !G_IdxCv_GPU
+  allocate(G_IdxCv_GPU(size(G%IdxCv,1),size(G%IdxCv,2)))
+  !G_IdyCu_GPU
+  allocate(G_IdyCu_GPU(size(G%IdyCu,1),size(G%IdyCu,2)))
+  !G_IdyCv_GPU
+  allocate(G_IdyCv_GPU(size(G%IdyCv,1),size(G%IdyCv,2)))
+  !G_IdxBu_GPU
+  allocate(G_IdxBu_GPU(size(G%IdxBu,1),size(G%IdxBu,2)))
+  !G_IdyBu_GPU
+  allocate(G_IdyBu_GPU(size(G%IdyBu,1),size(G%IdyBu,2)))
+  !G_dxBu_GPU
+  allocate(G_dxBu_GPU(size(G%dxBu,1),size(G%dxBu,2)))
+  !G_dyBu_GPU
+  allocate(G_dyBu_GPU(size(G%dyBu,1),size(G%dyBu,2)))
+  !G_dF_dx_GPU
+  allocate(G_dF_dx_GPU(size(G%dF_dx,1),size(G%dF_dx,2)))
+  !G_dF_dy_GPU
+  allocate(G_dF_dy_GPU(size(G%dF_dy,1),size(G%dF_dy,2)))
+
+
+
+  !CS_DX_dyT_GPU
+  allocate(CS_DX_dyT_GPU(size(CS%DX_dyT,1),size(CS%DX_dyT,2)))
+  !CS_DY_dxT_GPU
+  allocate(CS_DY_dxT_GPU(size(CS%DY_dxT,1),size(CS%DY_dxT,2)))
+  !CS_DX_dyBu_GPU
+  allocate(CS_DX_dyBu_GPU(size(CS%DX_dyBu,1),size(CS%DX_dyBu,2)))
+  !CS_DY_dxBu_GPU
+  allocate(CS_DY_dxBu_GPU(size(CS%DY_dxBu,1),size(CS%DY_dxBu,2)))
+
+
+
+
+
+!COPY data to the temporary array
+  !G_mask2dCu_GPU
+  do i=1, size(G%mask2dCu, 1); do j=1, size(G%mask2dCu, 2)
+    G_mask2dCu_GPU(i,j) = G%mask2dCu(i,j)
+  enddo; enddo 
+  !G_mask2dCv_GPU
+  do i=1, size(G%mask2dCv, 1); do j=1, size(G%mask2dCv, 2)
+    G_mask2dCv_GPU(i,j) = G%mask2dCv(i,j)
+  enddo; enddo 
+  !G_mask2dBu_GPU
+  do i=1, size(G%mask2dBu, 1); do j=1, size(G%mask2dBu, 2)
+    G_mask2dBu_GPU(i,j) = G%mask2dBu(i,j)
+  enddo; enddo 
+  !G_mask2dT_GPU
+  do i=1, size(G%mask2dT, 1); do j=1, size(G%mask2dT, 2)
+    G_mask2dT_GPU(i,j) = G%mask2dT(i,j)
+  enddo; enddo 
+  !G_IdxCu_GPU
+  do i=1, size(G%IdxCu, 1); do j=1, size(G%IdxCu, 2)
+    G_IdxCu_GPU(i,j) = G%IdxCu(i,j)
+  enddo; enddo 
+  !G_IdxCv_GPU
+  do i=1, size(G%IdxCv, 1); do j=1, size(G%IdxCv, 2)
+    G_IdxCv_GPU(i,j) = G%IdxCv(i,j)
+  enddo; enddo 
+  !G_IdyCu_GPU
+  do i=1, size(G%IdyCu, 1); do j=1, size(G%IdyCu, 2)
+    G_IdyCu_GPU(i,j) = G%IdyCu(i,j)
+  enddo; enddo 
+  !G_IdyCv_GPU
+  do i=1, size(G%IdyCv, 1); do j=1, size(G%IdyCv, 2)
+    G_IdyCv_GPU(i,j) = G%IdyCv(i,j)
+  enddo; enddo 
+  !G_IdxBu_GPU
+  do i=1, size(G%IdxBu, 1); do j=1, size(G%IdxBu, 2)
+    G_IdxBu_GPU(i,j) = G%IdxBu(i,j)
+  enddo; enddo 
+  !G_IdyBu_GPU
+  do i=1, size(G%IdyBu, 1); do j=1, size(G%IdyBu, 2)
+    G_IdyBu_GPU(i,j) = G%IdyBu(i,j)
+  enddo; enddo 
+  !G_dxBu_GPU
+  do i=1, size(G%dxBu, 1); do j=1, size(G%dxBu, 2)
+    G_dxBu_GPU(i,j) = G%dxBu(i,j)
+  enddo; enddo 
+  !G_dyBu_GPU
+  do i=1, size(G%dyBu, 1); do j=1, size(G%dyBu, 2)
+    G_dyBu_GPU(i,j) = G%dyBu(i,j)
+  enddo; enddo 
+  !G_dF_dx_GPU
+  do i=1, size(G%dF_dx, 1); do j=1, size(G%dF_dx, 2)
+    G_dF_dx_GPU(i,j) = G%dF_dx(i,j)
+  enddo; enddo 
+  !G_dF_dy_GPU
+  do i=1, size(G%dF_dy, 1); do j=1, size(G%dF_dy, 2)
+    G_dF_dy_GPU(i,j) = G%dF_dy(i,j)
+  enddo; enddo 
+
+
+
+  !CS_DX_dyT_GPU
+  do i=1, size(CS%DX_dyT, 1); do j=1, size(CS%DX_dyT, 2)
+    CS_DX_dyT_GPU(i,j) = CS%DX_dyT(i,j)
+  enddo; enddo 
+  !CS_DY_dxT_GPU
+  do i=1, size(CS%DY_dxT, 1); do j=1, size(CS%DY_dxT, 2)
+    CS_DY_dxT_GPU(i,j) = CS%DY_dxT(i,j)
+  enddo; enddo 
+  !CS_DX_dyB_GPU
+  do i=1, size(CS%DX_dyBu, 1); do j=1, size(CS%DX_dyBu, 2)
+    CS_DX_dyBu_GPU(i,j) = CS%DX_dyBu(i,j)
+  enddo; enddo 
+  !CS_DY_dxBu_GPU
+  do i=1, size(CS%DY_dxBu, 1); do j=1, size(CS%DY_dxBu, 2)
+    CS_DY_dxBu_GPU(i,j) = CS%DY_dxBu(i,j)
+  enddo; enddo 
+
+!!$acc parallel
+!!$acc end parallel
+!print *, 'OUTSIDE if (CS%use_GME) then'
+!-------------end of horizontal_viscosity temporary gpu arrays------------------------
+
   is  = G%isc  ; ie  = G%iec  ; js  = G%jsc  ; je  = G%jec ; nz = G%ke
   Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB
 
@@ -368,7 +542,9 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
   if (.not.(CS%Laplacian .or. CS%biharmonic)) return
 
   find_FrictWork = (CS%id_FrictWork > 0)
+
   if (CS%id_FrictWorkIntz > 0) find_FrictWork = .true.
+
   if (associated(MEKE)) then
     if (associated(MEKE%mom_src)) find_FrictWork = .true.
     backscat_subround = 0.0
@@ -393,9 +569,15 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
   use_MEKE_Au = associated(MEKE%Au)
 
   if (CS%use_GME) then
+    !ms added print LINEREPLACE
+    print *, 'INSIDE if (CS%use_GME) then'
+
+!$acc parallel
+!$acc loop
     do j=Jsq-1,Jeq+2 ; do i=Isq-1,Ieq+2
       boundary_mask_h(i,j) = (G%mask2dCu(I,j) * G%mask2dCv(i,J) * G%mask2dCu(I-1,j) * G%mask2dCv(i,J-1))
     enddo ; enddo
+!$acc end parallel
 
     do J=js-2,Jeq+1 ; do I=is-2,Ieq+1
       boundary_mask_q(I,J) = (G%mask2dCv(i,J) * G%mask2dCv(i+1,J) * G%mask2dCu(I,j) * G%mask2dCu(I,j-1))
@@ -485,6 +667,9 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
   !$OMP   dDel2vdx, dDel2udy, &
   !$OMP   h2uq, h2vq, hu, hv, hq, FatH, RoScl, GME_coeff &
   !$OMP )
+
+!$acc data copyin(cs_dy_dxt_gpu(isq-1:ieq+2,jsq-1:jeq+2),v(isq-1:ieq+2,jsq-2:jeq+2,k),u(isq-2:ieq+2,jsq-1:jeq+2,k),cs_dx_dyt_gpu(isq-1:ieq+2,jsq-1:jeq+2),g_idxcv_gpu(isq-1:ieq+2,jsq-2:jeq+2),g_idycu_gpu(isq-2:ieq+2,jsq-1:jeq+2))
+
   do k=1,nz
 
     ! The following are the forms of the horizontal tension and horizontal
@@ -492,13 +677,26 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
     ! Griffies and Hallberg (2000).
 
     ! Calculate horizontal tension
+
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel private(sh_xx, dudx, dvdy)
+    !$acc loop
     do j=Jsq-1,Jeq+2 ; do i=Isq-1,Ieq+2
-      dudx(i,j) = CS%DY_dxT(i,j)*(G%IdyCu(I,j) * u(I,j,k) - &
-                                  G%IdyCu(I-1,j) * u(I-1,j,k))
-      dvdy(i,j) = CS%DX_dyT(i,j)*(G%IdxCv(i,J) * v(i,J,k) - &
-                                  G%IdxCv(i,J-1) * v(i,J-1,k))
+      dudx(i,j) = CS_DY_dxT_GPU(i,j)*(G_IdyCu_GPU(I,j) * u(I,j,k) - &
+                                  G_IdyCu_GPU(I-1,j) * u(I-1,j,k))
+      dvdy(i,j) = CS_DX_dyT_GPU(i,j)*(G_IdxCv_GPU(i,J) * v(i,J,k) - &
+                                  G_IdxCv_GPU(i,J-1) * v(i,J-1,k))
       sh_xx(i,j) = dudx(i,j) - dvdy(i,j)
     enddo ; enddo
+    !$acc end loop
+    !$acc end parallel
+!    do j=Jsq-1,Jeq+2 ; do i=Isq-1,Ieq+2
+!      dudx(i,j) = CS%DY_dxT(i,j)*(G%IdyCu(I,j) * u(I,j,k) - &
+!                                  G%IdyCu(I-1,j) * u(I-1,j,k))
+!      dvdy(i,j) = CS%DX_dyT(i,j)*(G%IdxCv(i,J) * v(i,J,k) - &
+!                                  G%IdxCv(i,J-1) * v(i,J-1,k))
+!      sh_xx(i,j) = dudx(i,j) - dvdy(i,j)
+!    enddo ; enddo
 
     ! Components for the shearing strain
     do J=js-2,Jeq+1 ; do I=is-2,Ieq+1
@@ -1306,6 +1504,7 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
     endif ; endif ! find_FrictWork and associated(mom_src)
 
   enddo ! end of k loop
+!$acc end data
 
   ! Offer fields for diagnostic averaging.
   if (CS%id_diffu>0)     call post_data(CS%id_diffu, diffu, CS%diag)
