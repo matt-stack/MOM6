@@ -136,6 +136,7 @@ contains
 !> pass_var_3d does a halo update for a three-dimensional array.
 subroutine pass_var_3d(array, MOM_dom, sideflag, complete, position, halo, &
                        clock)
+!!$acc routine seq
   real, dimension(:,:,:), intent(inout) :: array    !< The array which is having its halos points
                                                     !! exchanged.
   type(MOM_domain_type),  intent(inout) :: MOM_dom  !< The MOM_domain_type containing the mpp_domain

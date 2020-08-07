@@ -748,6 +748,7 @@ end subroutine calc_slope_functions_using_just_e
 
 !> Calculates the Leith Laplacian and bi-harmonic viscosity coefficients
 subroutine calc_QG_Leith_viscosity(CS, G, GV, US, h, k, div_xx_dx, div_xx_dy, vort_xy_dx, vort_xy_dy)
+!!$acc routine seq
   type(VarMix_CS),                           pointer     :: CS !< Variable mixing coefficients
   type(ocean_grid_type),                     intent(in)  :: G  !< Ocean grid structure
   type(verticalGrid_type),                   intent(in)  :: GV !< The ocean's vertical grid structure.

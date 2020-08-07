@@ -1,6 +1,5 @@
 !> Calculates horizontal viscosity and viscous stresses
 module MOM_hor_visc
-
 ! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_checksums,             only : hchksum, Bchksum
@@ -19,12 +18,17 @@ use MOM_open_boundary,         only : ocean_OBC_type, OBC_DIRECTION_E, OBC_DIREC
 use MOM_open_boundary,         only : OBC_DIRECTION_N, OBC_DIRECTION_S, OBC_NONE
 use MOM_unit_scaling,          only : unit_scale_type
 use MOM_verticalGrid,          only : verticalGrid_type
+use MOM_cpu_clock,             only : cpu_clock_id, cpu_clock_begin, cpu_clock_end, CLOCK_MODULE
 
 implicit none ; private
 
 #include <MOM_memory.h>
+include 'mpif.h'
 
 public horizontal_viscosity, hor_visc_init, hor_visc_end
+
+!$ms adding hor visc clock
+integer :: hor_visc_gpu_clock_id
 
 !> Control structure for horizontal viscosity
 type, public :: hor_visc_CS ; private
@@ -347,17 +351,19 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
   integer :: i, j, k, n
   real :: inv_PI3, inv_PI2, inv_PI5
 
+  !ACC MPI Print
+  integer :: rank, size1, ierror
 
 !-------------start of horizontal_viscosity temporary gpu arrays------------------------
 !NAMING: use _gpu for these temps ex: CS%q becomes  CS_q_gpu
   !G%mask2dCu -> G_mask2dCu_GPU
-  real, allocatable, dimension (:,:):: G_mask2dCu_GPU
+ ! real, allocatable, dimension (:,:):: G_mask2dCu_GPU
   !G%mask2dCv -> G_mask2dCv_GPU
-  real, allocatable, dimension (:,:):: G_mask2dCv_GPU
+ ! real, allocatable, dimension (:,:):: G_mask2dCv_GPU
   !G%mask2dBu -> G_mask2dBu_GPU
-  real, allocatable, dimension (:,:):: G_mask2dBu_GPU
+ ! real, allocatable, dimension (:,:):: G_mask2dBu_GPU
   !G%mask2dT -> G_mask2dT_GPU
-  real, allocatable, dimension (:,:):: G_mask2dT_GPU
+ ! real, allocatable, dimension (:,:):: G_mask2dT_GPU
   !G%IdxCu -> G_IdxCu_GPU
   real, allocatable, dimension (:,:):: G_IdxCu_GPU
   !G%IdxCv -> G_IdxCv_GPU
@@ -367,17 +373,17 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
   !G%IdyCv -> G_IdyCv_GPU
   real, allocatable, dimension (:,:):: G_IdyCv_GPU
   !G%IdxBu -> G_IdxBu_GPU
-  real, allocatable, dimension (:,:):: G_IdxBu_GPU
+ ! real, allocatable, dimension (:,:):: G_IdxBu_GPU
   !G%IdyBu -> G_IdyBu_GPU
-  real, allocatable, dimension (:,:):: G_IdyBu_GPU
+ ! real, allocatable, dimension (:,:):: G_IdyBu_GPU
   !G%dxBu -> G_dxBu_GPU
-  real, allocatable, dimension (:,:):: G_dxBu_GPU
+ ! real, allocatable, dimension (:,:):: G_dxBu_GPU
   !G%dyBu -> G_dyBu_GPU
-  real, allocatable, dimension (:,:):: G_dyBu_GPU
+ ! real, allocatable, dimension (:,:):: G_dyBu_GPU
   !G%dF_dx -> G_dF_dx_GPU
-  real, allocatable, dimension (:,:):: G_dF_dx_GPU
+ ! real, allocatable, dimension (:,:):: G_dF_dx_GPU
   !G%dF_dy -> G_dF_dy_GPU
-  real, allocatable, dimension (:,:):: G_dF_dy_GPU
+ ! real, allocatable, dimension (:,:):: G_dF_dy_GPU
 
 
 
@@ -395,13 +401,13 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
 
 !ALLOCATE a temporary array (workaround for structures)
   !G_mask2dCu_GPU
-  allocate(G_mask2dCu_GPU(size(G%mask2dCu,1),size(G%mask2dCu,2)))
+ ! allocate(G_mask2dCu_GPU(size(G%mask2dCu,1),size(G%mask2dCu,2)))
   !G_mask2dCv_GPU
-  allocate(G_mask2dCv_GPU(size(G%mask2dCv,1),size(G%mask2dCv,2)))
+ ! allocate(G_mask2dCv_GPU(size(G%mask2dCv,1),size(G%mask2dCv,2)))
   !G_mask2dBu_GPU
-  allocate(G_mask2dBu_GPU(size(G%mask2dBu,1),size(G%mask2dBu,2)))
+ ! allocate(G_mask2dBu_GPU(size(G%mask2dBu,1),size(G%mask2dBu,2)))
   !G_mask2dT_GPU
-  allocate(G_mask2dT_GPU(size(G%mask2dT,1),size(G%mask2dT,2)))
+ ! allocate(G_mask2dT_GPU(size(G%mask2dT,1),size(G%mask2dT,2)))
   !G_IdxCu_GPU
   allocate(G_IdxCu_GPU(size(G%IdxCu,1),size(G%IdxCu,2)))
   !G_IdxCv_GPU
@@ -411,17 +417,17 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
   !G_IdyCv_GPU
   allocate(G_IdyCv_GPU(size(G%IdyCv,1),size(G%IdyCv,2)))
   !G_IdxBu_GPU
-  allocate(G_IdxBu_GPU(size(G%IdxBu,1),size(G%IdxBu,2)))
+ ! allocate(G_IdxBu_GPU(size(G%IdxBu,1),size(G%IdxBu,2)))
   !G_IdyBu_GPU
-  allocate(G_IdyBu_GPU(size(G%IdyBu,1),size(G%IdyBu,2)))
+ ! allocate(G_IdyBu_GPU(size(G%IdyBu,1),size(G%IdyBu,2)))
   !G_dxBu_GPU
-  allocate(G_dxBu_GPU(size(G%dxBu,1),size(G%dxBu,2)))
+ ! allocate(G_dxBu_GPU(size(G%dxBu,1),size(G%dxBu,2)))
   !G_dyBu_GPU
-  allocate(G_dyBu_GPU(size(G%dyBu,1),size(G%dyBu,2)))
+ ! allocate(G_dyBu_GPU(size(G%dyBu,1),size(G%dyBu,2)))
   !G_dF_dx_GPU
-  allocate(G_dF_dx_GPU(size(G%dF_dx,1),size(G%dF_dx,2)))
+ ! allocate(G_dF_dx_GPU(size(G%dF_dx,1),size(G%dF_dx,2)))
   !G_dF_dy_GPU
-  allocate(G_dF_dy_GPU(size(G%dF_dy,1),size(G%dF_dy,2)))
+ ! allocate(G_dF_dy_GPU(size(G%dF_dy,1),size(G%dF_dy,2)))
 
 
 
@@ -440,21 +446,21 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
 
 !COPY data to the temporary array
   !G_mask2dCu_GPU
-  do i=1, size(G%mask2dCu, 1); do j=1, size(G%mask2dCu, 2)
-    G_mask2dCu_GPU(i,j) = G%mask2dCu(i,j)
-  enddo; enddo 
+!  do i=1, size(G%mask2dCu, 1); do j=1, size(G%mask2dCu, 2)
+!    G_mask2dCu_GPU(i,j) = G%mask2dCu(i,j)
+!  enddo; enddo 
   !G_mask2dCv_GPU
-  do i=1, size(G%mask2dCv, 1); do j=1, size(G%mask2dCv, 2)
-    G_mask2dCv_GPU(i,j) = G%mask2dCv(i,j)
-  enddo; enddo 
+!  do i=1, size(G%mask2dCv, 1); do j=1, size(G%mask2dCv, 2)
+!    G_mask2dCv_GPU(i,j) = G%mask2dCv(i,j)
+!  enddo; enddo 
   !G_mask2dBu_GPU
-  do i=1, size(G%mask2dBu, 1); do j=1, size(G%mask2dBu, 2)
-    G_mask2dBu_GPU(i,j) = G%mask2dBu(i,j)
-  enddo; enddo 
+!  do i=1, size(G%mask2dBu, 1); do j=1, size(G%mask2dBu, 2)
+!    G_mask2dBu_GPU(i,j) = G%mask2dBu(i,j)
+!  enddo; enddo 
   !G_mask2dT_GPU
-  do i=1, size(G%mask2dT, 1); do j=1, size(G%mask2dT, 2)
-    G_mask2dT_GPU(i,j) = G%mask2dT(i,j)
-  enddo; enddo 
+!  do i=1, size(G%mask2dT, 1); do j=1, size(G%mask2dT, 2)
+!    G_mask2dT_GPU(i,j) = G%mask2dT(i,j)
+!  enddo; enddo 
   !G_IdxCu_GPU
   do i=1, size(G%IdxCu, 1); do j=1, size(G%IdxCu, 2)
     G_IdxCu_GPU(i,j) = G%IdxCu(i,j)
@@ -472,29 +478,29 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
     G_IdyCv_GPU(i,j) = G%IdyCv(i,j)
   enddo; enddo 
   !G_IdxBu_GPU
-  do i=1, size(G%IdxBu, 1); do j=1, size(G%IdxBu, 2)
-    G_IdxBu_GPU(i,j) = G%IdxBu(i,j)
-  enddo; enddo 
+!  do i=1, size(G%IdxBu, 1); do j=1, size(G%IdxBu, 2)
+!    G_IdxBu_GPU(i,j) = G%IdxBu(i,j)
+!  enddo; enddo 
   !G_IdyBu_GPU
-  do i=1, size(G%IdyBu, 1); do j=1, size(G%IdyBu, 2)
-    G_IdyBu_GPU(i,j) = G%IdyBu(i,j)
-  enddo; enddo 
+!  do i=1, size(G%IdyBu, 1); do j=1, size(G%IdyBu, 2)
+!    G_IdyBu_GPU(i,j) = G%IdyBu(i,j)
+!  enddo; enddo 
   !G_dxBu_GPU
-  do i=1, size(G%dxBu, 1); do j=1, size(G%dxBu, 2)
-    G_dxBu_GPU(i,j) = G%dxBu(i,j)
-  enddo; enddo 
+!  do i=1, size(G%dxBu, 1); do j=1, size(G%dxBu, 2)
+!    G_dxBu_GPU(i,j) = G%dxBu(i,j)
+!  enddo; enddo 
   !G_dyBu_GPU
-  do i=1, size(G%dyBu, 1); do j=1, size(G%dyBu, 2)
-    G_dyBu_GPU(i,j) = G%dyBu(i,j)
-  enddo; enddo 
+!  do i=1, size(G%dyBu, 1); do j=1, size(G%dyBu, 2)
+!    G_dyBu_GPU(i,j) = G%dyBu(i,j)
+!  enddo; enddo 
   !G_dF_dx_GPU
-  do i=1, size(G%dF_dx, 1); do j=1, size(G%dF_dx, 2)
-    G_dF_dx_GPU(i,j) = G%dF_dx(i,j)
-  enddo; enddo 
+!  do i=1, size(G%dF_dx, 1); do j=1, size(G%dF_dx, 2)
+!    G_dF_dx_GPU(i,j) = G%dF_dx(i,j)
+!  enddo; enddo 
   !G_dF_dy_GPU
-  do i=1, size(G%dF_dy, 1); do j=1, size(G%dF_dy, 2)
-    G_dF_dy_GPU(i,j) = G%dF_dy(i,j)
-  enddo; enddo 
+!  do i=1, size(G%dF_dy, 1); do j=1, size(G%dF_dy, 2)
+!    G_dF_dy_GPU(i,j) = G%dF_dy(i,j)
+!  enddo; enddo 
 
 
 
@@ -572,12 +578,12 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
     !ms added print LINEREPLACE
     print *, 'INSIDE if (CS%use_GME) then'
 
-!$acc parallel
-!$acc loop
+! !$acc parallel
+! !$acc loop
     do j=Jsq-1,Jeq+2 ; do i=Isq-1,Ieq+2
       boundary_mask_h(i,j) = (G%mask2dCu(I,j) * G%mask2dCv(i,J) * G%mask2dCu(I-1,j) * G%mask2dCv(i,J-1))
     enddo ; enddo
-!$acc end parallel
+! !$acc end parallel
 
     do J=js-2,Jeq+1 ; do I=is-2,Ieq+1
       boundary_mask_q(I,J) = (G%mask2dCv(i,J) * G%mask2dCv(i+1,J) * G%mask2dCu(I,j) * G%mask2dCu(I,j-1))
@@ -668,9 +674,29 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
   !$OMP   h2uq, h2vq, hu, hv, hq, FatH, RoScl, GME_coeff &
   !$OMP )
 
-!$acc data copyin(cs_dy_dxt_gpu(isq-1:ieq+2,jsq-1:jeq+2),v(isq-1:ieq+2,jsq-2:jeq+2,k),u(isq-2:ieq+2,jsq-1:jeq+2,k),cs_dx_dyt_gpu(isq-1:ieq+2,jsq-1:jeq+2),g_idxcv_gpu(isq-1:ieq+2,jsq-2:jeq+2),g_idycu_gpu(isq-2:ieq+2,jsq-1:jeq+2))
+! !$acc data copyin(cs_dy_dxt_gpu(isq-1:ieq+2,jsq-1:jeq+2), &
+! !$acc v(isq-1:ieq+2,jsq-2:jeq+2,1:nz), &
+! !$acc u(isq-2:ieq+2,jsq-1:jeq+2,1:nz), &
+! !$acc cs_dx_dyt_gpu(isq-1:ieq+2,jsq-1:jeq+2), &
+! !$acc g_idxcv_gpu(isq-1:ieq+2,jsq-2:jeq+2), &
+! !$acc g_idycu_gpu(isq-2:ieq+2,jsq-1:jeq+2))
+
+!$acc data copyin(v(isq-1:ieq+2,jsq-2:jeq+2,1:nz), &
+!$acc u(isq-2:ieq+2,jsq-1:jeq+2,1:nz)) &
+!$acc copyout(sh_xx(isq-1:ieq+2,jsq-1:jeq+2), &
+!$acc dvdy(isq-1:ieq+2,jsq-1:jeq+2), &
+!$acc dudx(isq-1:ieq+2,jsq-1:jeq+2))
+
+!$ms adding hor visc clock
+cpu_clock_begin(hor_visc_gpu_clock_id)
 
   do k=1,nz
+
+! for benchmark 1 day, nz is 22
+!call MPI_INIT(ierror)
+!call MPI_COMM_SIZE(MPI_COMM_WORLD, size1, ierror)
+!call MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierror)
+!print *, 'INSIDE K loop with rank', rank
 
     ! The following are the forms of the horizontal tension and horizontal
     ! shearing strain advocated by Smagorinsky (1993) and discussed in
@@ -679,8 +705,10 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
     ! Calculate horizontal tension
 
     !ms adding acc parallel at LINEREPLACE
-    !$acc parallel private(sh_xx, dudx, dvdy)
-    !$acc loop
+    ! !$acc parallel private(sh_xx, dudx, dvdy)
+    !$acc parallel
+    ! !$acc loop collapse(2) independent
+    !$acc loop collapse(2)
     do j=Jsq-1,Jeq+2 ; do i=Isq-1,Ieq+2
       dudx(i,j) = CS_DY_dxT_GPU(i,j)*(G_IdyCu_GPU(I,j) * u(I,j,k) - &
                                   G_IdyCu_GPU(I-1,j) * u(I-1,j,k))
@@ -688,49 +716,60 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
                                   G_IdxCv_GPU(i,J-1) * v(i,J-1,k))
       sh_xx(i,j) = dudx(i,j) - dvdy(i,j)
     enddo ; enddo
-    !$acc end loop
     !$acc end parallel
-!    do j=Jsq-1,Jeq+2 ; do i=Isq-1,Ieq+2
-!      dudx(i,j) = CS%DY_dxT(i,j)*(G%IdyCu(I,j) * u(I,j,k) - &
-!                                  G%IdyCu(I-1,j) * u(I-1,j,k))
-!      dvdy(i,j) = CS%DX_dyT(i,j)*(G%IdxCv(i,J) * v(i,J,k) - &
-!                                  G%IdxCv(i,J-1) * v(i,J-1,k))
-!      sh_xx(i,j) = dudx(i,j) - dvdy(i,j)
-!    enddo ; enddo
+
+!print *, 'Past parallel'
 
     ! Components for the shearing strain
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
+    !$acc loop collapse(2)
     do J=js-2,Jeq+1 ; do I=is-2,Ieq+1
-      dvdx(I,J) = CS%DY_dxBu(I,J)*(v(i+1,J,k)*G%IdyCv(i+1,J) - v(i,J,k)*G%IdyCv(i,J))
-      dudy(I,J) = CS%DX_dyBu(I,J)*(u(I,j+1,k)*G%IdxCu(I,j+1) - u(I,j,k)*G%IdxCu(I,j))
+      dvdx(I,J) = CS_DY_dxBu_GPU(I,J)*(v(i+1,J,k)*G_IdyCv_GPU(i+1,J) - v(i,J,k)*G_IdyCv_GPU(i,J))
+      dudy(I,J) = CS_DX_dyBu_GPU(I,J)*(u(I,j+1,k)*G_IdxCu_GPU(I,j+1) - u(I,j,k)*G_IdxCu_GPU(I,j))
     enddo ; enddo
+    !$acc end parallel
 
     ! Interpolate the thicknesses to velocity points.
     ! The extra wide halos are to accommodate the cross-corner-point projections
     ! in OBCs, which are not ordinarily be necessary, and might not be necessary
     ! even with OBCs if the accelerations are zeroed at OBC points, in which
     ! case the j-loop for h_u could collapse to j=js=1,je+1. -RWH
+
+
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
     if (CS%use_land_mask) then
+    !$acc loop collapse(2)
       do j=js-2,je+2 ; do I=Isq-1,Ieq+1
         h_u(I,j) = 0.5 * (G%mask2dT(i,j)*h(i,j,k) + G%mask2dT(i+1,j)*h(i+1,j,k))
       enddo ; enddo
+    !$acc loop collapse(2)
       do J=Jsq-1,Jeq+1 ; do i=is-2,ie+2
         h_v(i,J) = 0.5 * (G%mask2dT(i,j)*h(i,j,k) + G%mask2dT(i,j+1)*h(i,j+1,k))
       enddo ; enddo
     else
+    !$acc loop collapse(2)
       do j=js-2,je+2 ; do I=Isq-1,Ieq+1
         h_u(I,j) = 0.5 * (h(i,j,k) + h(i+1,j,k))
       enddo ; enddo
+    !$acc loop collapse(2)
       do J=Jsq-1,Jeq+1 ; do i=is-2,ie+2
         h_v(i,J) = 0.5 * (h(i,j,k) + h(i,j+1,k))
       enddo ; enddo
     endif
+    !$acc end parallel
 
     ! Adjust contributions to shearing strain and interpolated values of
     ! thicknesses on open boundaries.
+
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
     if (apply_OBC) then ; do n=1,OBC%number_of_segments
       J = OBC%segment(n)%HI%JsdB ; I = OBC%segment(n)%HI%IsdB
       if (OBC%zero_strain .or. OBC%freeslip_strain .or. OBC%computed_strain) then
         if (OBC%segment(n)%is_N_or_S .and. (J >= js-2) .and. (J <= Jeq+1)) then
+          !$acc loop independent
           do I=OBC%segment(n)%HI%IsdB,OBC%segment(n)%HI%IedB
             if (OBC%zero_strain) then
               dvdx(I,J) = 0. ; dudy(I,J) = 0.
@@ -753,6 +792,7 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
             endif
           enddo
         elseif (OBC%segment(n)%is_E_or_W .and. (I >= is-2) .and. (I <= Ieq+1)) then
+          !$acc loop independent
           do J=OBC%segment(n)%HI%JsdB,OBC%segment(n)%HI%JedB
             if (OBC%zero_strain) then
               dvdx(I,J) = 0. ; dudy(I,J) = 0.
@@ -777,90 +817,113 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
         endif
       endif
 
-
       if (OBC%segment(n)%direction == OBC_DIRECTION_N) then
         ! There are extra wide halos here to accommodate the cross-corner-point
         ! OBC projections, but they might not be necessary if the accelerations
         ! are always zeroed out at OBC points, in which case the i-loop below
         ! becomes do i=is-1,ie+1. -RWH
         if ((J >= Jsq-1) .and. (J <= Jeq+1)) then
+          !$acc loop independent
           do i = max(is-2,OBC%segment(n)%HI%isd), min(ie+2,OBC%segment(n)%HI%ied)
             h_v(i,J) = h(i,j,k)
           enddo
         endif
       elseif (OBC%segment(n)%direction == OBC_DIRECTION_S) then
         if ((J >= Jsq-1) .and. (J <= Jeq+1)) then
+          !$acc loop independent
           do i = max(is-2,OBC%segment(n)%HI%isd), min(ie+2,OBC%segment(n)%HI%ied)
             h_v(i,J) = h(i,j+1,k)
           enddo
         endif
       elseif (OBC%segment(n)%direction == OBC_DIRECTION_E) then
         if ((I >= Isq-1) .and. (I <= Ieq+1)) then
+          !$acc loop independent
           do j = max(js-2,OBC%segment(n)%HI%jsd), min(je+2,OBC%segment(n)%HI%jed)
             h_u(I,j) = h(i,j,k)
           enddo
         endif
       elseif (OBC%segment(n)%direction == OBC_DIRECTION_W) then
         if ((I >= Isq-1) .and. (I <= Ieq+1)) then
+          !$acc loop independent
           do j = max(js-2,OBC%segment(n)%HI%jsd), min(je+2,OBC%segment(n)%HI%jed)
             h_u(I,j) = h(i+1,j,k)
           enddo
         endif
       endif
     enddo ; endif
+    !$acc end parallel
+
+
     ! Now project thicknesses across corner points on OBCs.
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
     if (apply_OBC) then ; do n=1,OBC%number_of_segments
       J = OBC%segment(n)%HI%JsdB ; I = OBC%segment(n)%HI%IsdB
       if (OBC%segment(n)%direction == OBC_DIRECTION_N) then
         if ((J >= js-2) .and. (J <= je)) then
+          !$acc loop independent
           do I = max(Isq-1,OBC%segment(n)%HI%IsdB), min(Ieq+1,OBC%segment(n)%HI%IedB)
             h_u(I,j+1) = h_u(I,j)
           enddo
         endif
       elseif (OBC%segment(n)%direction == OBC_DIRECTION_S) then
         if ((J >= js-1) .and. (J <= je+1)) then
+          !$acc loop independent
           do I = max(Isq-1,OBC%segment(n)%HI%isd), min(Ieq+1,OBC%segment(n)%HI%ied)
             h_u(I,j) = h_u(i,j+1)
           enddo
         endif
       elseif (OBC%segment(n)%direction == OBC_DIRECTION_E) then
         if ((I >= is-2) .and. (I <= ie)) then
+          !$acc loop independent
           do J = max(Jsq-1,OBC%segment(n)%HI%jsd), min(Jeq+1,OBC%segment(n)%HI%jed)
             h_v(i+1,J) = h_v(i,J)
           enddo
         endif
       elseif (OBC%segment(n)%direction == OBC_DIRECTION_W) then
         if ((I >= is-1) .and. (I <= ie+1)) then
+          !$acc loop independent
           do J = max(Jsq-1,OBC%segment(n)%HI%jsd), min(Jeq+1,OBC%segment(n)%HI%jed)
             h_v(i,J) = h_v(i+1,J)
           enddo
         endif
       endif
     enddo ; endif
+    !$acc end parallel
 
     ! Shearing strain (including no-slip boundary conditions at the 2-D land-sea mask).
     ! dudy and dvdx include modifications at OBCs from above.
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
     if (CS%no_slip) then
+    !$acc loop collapse(2) independent
       do J=js-2,Jeq+1 ; do I=is-2,Ieq+1
         sh_xy(I,J) = (2.0-G%mask2dBu(I,J)) * ( dvdx(I,J) + dudy(I,J) )
       enddo ; enddo
     else
+    !$acc loop collapse(2) independent
       do J=js-2,Jeq+1 ; do I=is-2,Ieq+1
         sh_xy(I,J) = G%mask2dBu(I,J) * ( dvdx(I,J) + dudy(I,J) )
       enddo ; enddo
     endif
+    !$acc end parallel
 
     !  Evaluate Del2u = x.Div(Grad u) and Del2v = y.Div( Grad u)
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
     if (CS%biharmonic) then
+    !$acc loop collapse(2) independent
       do j=js-1,Jeq+1 ; do I=Isq-1,Ieq+1
         Del2u(I,j) = CS%Idxdy2u(I,j)*(CS%dy2h(i+1,j)*sh_xx(i+1,j) - CS%dy2h(i,j)*sh_xx(i,j)) + &
                      CS%Idx2dyCu(I,j)*(CS%dx2q(I,J)*sh_xy(I,J) - CS%dx2q(I,J-1)*sh_xy(I,J-1))
       enddo ; enddo
+      !$acc loop collapse(2) independent
       do J=Jsq-1,Jeq+1 ; do i=is-1,Ieq+1
         Del2v(i,J) = CS%Idxdy2v(i,J)*(CS%dy2q(I,J)*sh_xy(I,J) - CS%dy2q(I-1,J)*sh_xy(I-1,J)) - &
                      CS%Idx2dyCv(i,J)*(CS%dx2h(i,j+1)*sh_xx(i,j+1) - CS%dx2h(i,j)*sh_xx(i,j))
       enddo ; enddo
       if (apply_OBC) then; if (OBC%zero_biharmonic) then
+      !$acc loop independent
         do n=1,OBC%number_of_segments
           I = OBC%segment(n)%HI%IsdB ; J = OBC%segment(n)%HI%JsdB
           if (OBC%segment(n)%is_N_or_S .and. (J >= Jsq-1) .and. (J <= Jeq+1)) then
@@ -875,26 +938,33 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
         enddo
       endif; endif
     endif
+    !$acc end parallel
 
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
     if ((CS%Leith_Kh) .or. (CS%Leith_Ah)) then
 
       ! Vorticity
       if (CS%no_slip) then
+    !$acc loop collapse(2) independent
         do J=js-2,Jeq+1 ; do I=is-2,Ieq+1
           vort_xy(I,J) = (2.0-G%mask2dBu(I,J)) * ( dvdx(I,J) - dudy(I,J) )
         enddo ; enddo
       else
+    !$acc loop collapse(2) independent
         do J=js-2,Jeq+1 ; do I=is-2,Ieq+1
           vort_xy(I,J) = G%mask2dBu(I,J) * ( dvdx(I,J) - dudy(I,J) )
         enddo ; enddo
       endif
 
       ! Vorticity gradient
+    !$acc loop collapse(2) independent
       do J=js-2,Jeq+1 ; do i=is-1,Ieq+1
         DY_dxBu = G%dyBu(I,J) * G%IdxBu(I,J)
         vort_xy_dx(i,J) = DY_dxBu * (vort_xy(I,J) * G%IdyCu(I,j) - vort_xy(I-1,J) * G%IdyCu(I-1,j))
       enddo ; enddo
 
+    !$acc loop collapse(2) independent
       do j=js-1,Jeq+1 ; do I=is-2,Ieq+1
         DX_dyBu = G%dxBu(I,J) * G%IdyBu(I,J)
         vort_xy_dy(I,j) = DX_dyBu * (vort_xy(I,J) * G%IdxCv(i,J) - vort_xy(I,J-1) * G%IdxCv(i,J-1))
@@ -902,24 +972,29 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
 
       if (CS%modified_Leith) then
         ! Divergence
+    !$acc loop collapse(2) independent
         do j=Jsq-1,Jeq+2 ; do i=Isq-1,Ieq+2
           div_xx(i,j) = dudx(i,j) + dvdy(i,j)
         enddo ; enddo
 
         ! Divergence gradient
+    !$acc loop collapse(2) independent
         do j=Jsq-1,Jeq+2 ; do I=Isq-1,Ieq+1
           div_xx_dx(I,j) = G%IdxCu(I,j)*(div_xx(i+1,j) - div_xx(i,j))
         enddo ; enddo
+    !$acc loop collapse(2) independent
         do J=Jsq-1,Jeq+1 ; do i=Isq-1,Ieq+2
           div_xx_dy(i,J) = G%IdyCv(i,J)*(div_xx(i,j+1) - div_xx(i,j))
         enddo ; enddo
 
         ! Magnitude of divergence gradient
+    !$acc loop collapse(2) independent
         do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
           grad_div_mag_h(i,j) =sqrt((0.5*(div_xx_dx(I,j) + div_xx_dx(I-1,j)))**2 + &
           (0.5 * (div_xx_dy(i,J) + div_xx_dy(i,J-1)))**2)
         enddo ; enddo
         !do J=js-1,Jeq ; do I=is-1,Ieq
+    !$acc loop collapse(2) independent
         do j=Jsq-1,Jeq+1 ; do i=Isq-1,Ieq+1
           grad_div_mag_q(I,J) =sqrt((0.5*(div_xx_dx(I,j) + div_xx_dx(I,j+1)))**2 + &
           (0.5 * (div_xx_dy(i,J) + div_xx_dy(i+1,J)))**2)
@@ -927,15 +1002,19 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
 
       else
 
+    !$acc loop collapse(2) independent
         do j=Jsq-1,Jeq+2 ; do I=is-2,Ieq+1
           div_xx_dx(I,j) = 0.0
         enddo ; enddo
+    !$acc loop collapse(2) independent
         do J=Jsq-1,Jeq+1 ; do i=Isq-1,Ieq+2
           div_xx_dy(i,J) = 0.0
         enddo ; enddo
+    !$acc loop collapse(2) independent
         do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
           grad_div_mag_h(i,j) = 0.0
         enddo ; enddo
+    !$acc loop collapse(2) independent
         do J=Jsq-1,Jeq+1 ; do I=Isq-1,Ieq+1
           grad_div_mag_q(I,J) = 0.0
         enddo ; enddo
@@ -944,9 +1023,11 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
 
       ! Add in beta for the Leith viscosity
       if (CS%use_beta_in_Leith) then
+    !$acc loop collapse(2) independent
         do J=js-2,Jeq+1 ; do i=is-1,Ieq+1
           vort_xy_dx(i,J) = vort_xy_dx(i,J) + 0.5 * ( G%dF_dx(i,j) + G%dF_dx(i,j+1))
         enddo ; enddo
+    !$acc loop collapse(2) independent
         do j=js-1,Jeq+1 ; do I=is-2,Ieq+1
           vort_xy_dy(I,j) = vort_xy_dy(I,j) + 0.5 * ( G%dF_dy(i,j) + G%dF_dy(i+1,j))
         enddo ; enddo
@@ -954,34 +1035,45 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
 
       if (CS%use_QG_Leith_visc) then
 
+    !$acc loop collapse(2) independent
         do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
           grad_vort_mag_h_2d(i,j) = SQRT((0.5*(vort_xy_dx(i,J) + vort_xy_dx(i,J-1)))**2 + &
                                          (0.5*(vort_xy_dy(I,j) + vort_xy_dy(I-1,j)))**2 )
         enddo ; enddo
+    !$acc loop collapse(2) independent
         do J=js-1,Jeq ; do I=is-1,Ieq
           grad_vort_mag_q_2d(I,J) = SQRT((0.5*(vort_xy_dx(i,J) + vort_xy_dx(i+1,J)))**2 + &
                                          (0.5*(vort_xy_dy(I,j) + vort_xy_dy(I,j+1)))**2 )
         enddo ; enddo
 
         ! This accumulates terms, some of which are in VarMix, so rescaling can not be done here.
-        call calc_QG_Leith_viscosity(VarMix, G, GV, US, h, k, div_xx_dx, div_xx_dy, &
-                                     vort_xy_dx, vort_xy_dy)
+!!!!!!!!!!!!
+!THIS NEEDS TO BE FIXED
+!!!!!!!!!!!!
+!        call calc_QG_Leith_viscosity(VarMix, G, GV, US, h, k, div_xx_dx, div_xx_dy, &
+!                                     vort_xy_dx, vort_xy_dy)
 
       endif
 
+    !$acc loop collapse(2) independent
       do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
         grad_vort_mag_h(i,j) = SQRT((0.5*(vort_xy_dx(i,J) + vort_xy_dx(i,J-1)))**2 + &
                                     (0.5*(vort_xy_dy(I,j) + vort_xy_dy(I-1,j)))**2 )
       enddo ; enddo
+    !$acc loop collapse(2) independent
       do J=js-1,Jeq ; do I=is-1,Ieq
         grad_vort_mag_q(I,J) = SQRT((0.5*(vort_xy_dx(i,J) + vort_xy_dx(i+1,J)))**2 + &
                                     (0.5*(vort_xy_dy(I,j) + vort_xy_dy(I,j+1)))**2 )
       enddo ; enddo
 
     endif ! CS%Leith_Kh
+    !$acc end parallel
 
     meke_res_fn = 1.
 
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
+    !$acc loop independent
     do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
       if ((CS%Smagorinsky_Kh) .or. (CS%Smagorinsky_Ah)) then
         Shear_mag = sqrt(sh_xx(i,j)*sh_xx(i,j) + &
@@ -1090,15 +1182,20 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
       endif  ! biharmonic
 
     enddo ; enddo
+    !$acc end parallel
 
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
     if (CS%biharmonic) then
       ! Gradient of Laplacian, for use in bi-harmonic term
+    !$acc loop collapse(2) independent
       do J=js-1,Jeq ; do I=is-1,Ieq
         dDel2vdx(I,J) = CS%DY_dxBu(I,J)*(Del2v(i+1,J)*G%IdyCv(i+1,J) - Del2v(i,J)*G%IdyCv(i,J))
         dDel2udy(I,J) = CS%DX_dyBu(I,J)*(Del2u(I,j+1)*G%IdxCu(I,j+1) - Del2u(I,j)*G%IdxCu(I,j))
       enddo ; enddo
       ! Adjust contributions to shearing strain on open boundaries.
       if (apply_OBC) then ; if (OBC%zero_strain .or. OBC%freeslip_strain) then
+      !$acc loop independent
         do n=1,OBC%number_of_segments
           J = OBC%segment(n)%HI%JsdB ; I = OBC%segment(n)%HI%IsdB
           if (OBC%segment(n)%is_N_or_S .and. (J >= js-1) .and. (J <= Jeq)) then
@@ -1121,9 +1218,13 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
         enddo
       endif ; endif
     endif
+    !$acc end parallel
 
     meke_res_fn = 1.
 
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
+    !$acc loop collapse(2) independent
     do J=js-1,Jeq ; do I=is-1,Ieq
       if ((CS%Smagorinsky_Kh) .or. (CS%Smagorinsky_Ah)) then
         Shear_mag = sqrt(sh_xy(I,J)*sh_xy(I,J) + &
@@ -1259,9 +1360,14 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
       endif  ! biharmonic
 
     enddo ; enddo
+    !$acc end parallel
 
+
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
     if (CS%use_GME) then
       if (CS%answers_2018) then
+    !$acc loop collapse(2) independent
         do j=js,je ; do i=is,ie
           grad_vel_mag_h(i,j) = boundary_mask_h(i,j) * (dudx(i,j)**2 + dvdy(i,j)**2 + &
             (0.25*((dvdx(I,J) + dvdx(I-1,J-1)) + (dvdx(I,J-1) + dvdx(I-1,J))) )**2 + &
@@ -1269,6 +1375,7 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
           max_diss_rate_h(i,j,k) = 2.0 * MEKE%MEKE(i,j) * sqrt(grad_vel_mag_h(i,j))
         enddo ; enddo
       else  ! This form is invariant to 90-degree rotations.
+    !$acc loop collapse(2) independent
         do j=js,je ; do i=is,ie
           grad_vel_mag_h(i,j) = boundary_mask_h(i,j) * ((dudx(i,j)**2 + dvdy(i,j)**2) + &
               ((0.25*((dvdx(I,J) + dvdx(I-1,J-1)) + (dvdx(I,J-1) + dvdx(I-1,J))) )**2 + &
@@ -1278,6 +1385,7 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
       endif
 
       if (CS%answers_2018) then
+    !$acc loop collapse(2) independent
         do J = G%JscB, G%JecB ; do I = G%IscB, G%IecB
           grad_vel_mag_q(I,J) = boundary_mask_q(I,J) * (dudx(i,j)**2 + dvdy(i,j)**2 + &
             (0.25*((dvdx(I,J)+dvdx(I-1,J-1)) + (dvdx(I,J-1)+dvdx(I-1,J))) )**2 + &
@@ -1287,6 +1395,7 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
             MEKE%MEKE(i,j+1)+MEKE%MEKE(i+1,j+1)) * sqrt(grad_vel_mag_q(I,J))
         enddo ; enddo
       else ! This form is rotationally invariant
+    !$acc loop collapse(2) independent
         do J = G%JscB, G%JecB ; do I = G%IscB, G%IecB
           grad_vel_mag_q(I,J) = boundary_mask_q(I,J) * ((dudx(i,j)**2 + dvdy(i,j)**2) + &
             ((0.25*((dvdx(I,J)+dvdx(I-1,J-1)) + (dvdx(I,J-1)+dvdx(I-1,J))) )**2 + &
@@ -1297,6 +1406,7 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
         enddo ; enddo
       endif
 
+    !$acc loop collapse(2) independent
       do J=Jsq,Jeq+1 ; do i=Isq,Ieq+1
         if ((grad_vel_mag_bt_h(i,j)>0) .and. (max_diss_rate_h(i,j,k)>0)) then
           GME_coeff = (MIN(G%bathyT(i,j)/CS%GME_h0,1.0)**2) * CS%GME_efficiency*max_diss_rate_h(i,j,k) / &
@@ -1314,6 +1424,7 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
 
       enddo ; enddo
 
+    !$acc loop collapse(2) independent
       do J=js-1,Jeq ; do I=is-1,Ieq
 
         if ((grad_vel_mag_bt_q(I,J)>0) .and. (max_diss_rate_q(I,J,k)>0)) then
@@ -1336,10 +1447,12 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
       call smooth_GME(CS,G,GME_flux_h=str_xx_GME)
       call smooth_GME(CS,G,GME_flux_q=str_xy_GME)
 
+    !$acc loop collapse(2) independent
       do J=Jsq,Jeq+1 ; do i=Isq,Ieq+1
         str_xx(i,j) = (str_xx(i,j) + str_xx_GME(i,j)) * (h(i,j,k) * CS%reduction_xx(i,j))
       enddo ; enddo
 
+    !$acc loop collapse(2) independent
       do J=js-1,Jeq ; do I=is-1,Ieq
         ! GME is applied below
         if (CS%no_slip) then
@@ -1356,10 +1469,12 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
       endif
 
     else ! use_GME
+    !$acc loop collapse(2) independent
       do J=Jsq,Jeq+1 ; do i=Isq,Ieq+1
         str_xx(i,j) = str_xx(i,j) * (h(i,j,k) * CS%reduction_xx(i,j))
       enddo ; enddo
 
+    !$acc loop collapse(2) independent
       do J=js-1,Jeq ; do I=is-1,Ieq
         if (CS%no_slip) then
           str_xy(I,J) = str_xy(I,J) * (hq(I,J) * CS%reduction_xy(I,J))
@@ -1369,8 +1484,12 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
       enddo ; enddo
 
     endif ! use_GME
+    !$acc end parallel
 
     ! Evaluate 1/h x.Div(h Grad u) or the biharmonic equivalent.
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
+    !$acc loop collapse(2) independent
     do j=js,je ; do I=Isq,Ieq
       diffu(I,j,k) = ((G%IdyCu(I,j)*(CS%dy2h(i,j) *str_xx(i,j) - &
                                      CS%dy2h(i+1,j)*str_xx(i+1,j)) + &
@@ -1379,9 +1498,15 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
                      G%IareaCu(I,j)) / (h_u(i,j) + h_neglect)
 
     enddo ; enddo
+    !$acc end parallel
+
+
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
     if (apply_OBC) then
       ! This is not the right boundary condition. If all the masking of tendencies are done
       ! correctly later then eliminating this block should not change answers.
+    !$acc loop independent
       do n=1,OBC%number_of_segments
         if (OBC%segment(n)%is_E_or_W) then
           I = OBC%segment(n)%HI%IsdB
@@ -1391,8 +1516,12 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
         endif
       enddo
     endif
+    !$acc end parallel
 
     ! Evaluate 1/h y.Div(h Grad u) or the biharmonic equivalent.
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
+    !$acc loop collapse(2) independent
     do J=Jsq,Jeq ; do i=is,ie
       diffv(i,J,k) = ((G%IdyCv(i,J)*(CS%dy2q(I-1,J)*str_xy(I-1,J) - &
                                     CS%dy2q(I,J) *str_xy(I,J)) - &
@@ -1400,9 +1529,15 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
                                     CS%dx2h(i,j+1)*str_xx(i,j+1))) * &
                      G%IareaCv(i,J)) / (h_v(i,J) + h_neglect)
     enddo ; enddo
+    !$acc end parallel
+
+
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
     if (apply_OBC) then
       ! This is not the right boundary condition. If all the masking of tendencies are done
       ! correctly later then eliminating this block should not change answers.
+    !$acc loop independent
       do n=1,OBC%number_of_segments
         if (OBC%segment(n)%is_N_or_S) then
           J = OBC%segment(n)%HI%JsdB
@@ -1412,8 +1547,13 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
         endif
       enddo
     endif
+    !$acc end parallel
 
-    if (find_FrictWork) then ; do j=js,je ; do i=is,ie
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
+    if (find_FrictWork) then
+    !$acc loop collapse(2) independent
+         do j=js,je ; do i=is,ie
       ! Diagnose   str_xx*d_x u - str_yy*d_y v + str_xy*(d_y u + d_x v)
       ! This is the old formulation that includes energy diffusion
       FrictWork(i,j,k) = GV%H_to_RZ * ( &
@@ -1432,22 +1572,28 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
                    (u(I,j,k)-u(I,j-1,k))*G%IdyBu(I,J-1)          &
                   +(v(i+1,J-1,k)-v(i,J-1,k))*G%IdxBu(I,J-1) )) ) )
     enddo ; enddo ; endif
+    !$acc end parallel
 
     ! Make a similar calculation as for FrictWork above but accumulating into
     ! the vertically integrated MEKE source term, and adjusting for any
     ! energy loss seen as a reduction in the (biharmonic) frictional source term.
+    !ms adding acc parallel at LINEREPLACE
+    !$acc parallel
     if (find_FrictWork .and. associated(MEKE)) then ; if (associated(MEKE%mom_src)) then
       if (k==1) then
+    !$acc loop collapse(2) independent
         do j=js,je ; do i=is,ie
           MEKE%mom_src(i,j) = 0.
         enddo ; enddo
         if (associated(MEKE%GME_snk)) then
+    !$acc loop collapse(2) independent
           do j=js,je ; do i=is,ie
             MEKE%GME_snk(i,j) = 0.
           enddo ; enddo
         endif
       endif
       if (MEKE%backscatter_Ro_c /= 0.) then
+    !$acc loop collapse(2) independent
         do j=js,je ; do i=is,ie
           FatH = 0.25*( (abs(G%CoriolisBu(I-1,J-1)) + abs(G%CoriolisBu(I,J))) + &
                         (abs(G%CoriolisBu(I-1,J)) + abs(G%CoriolisBu(I,J-1))) )
@@ -1491,20 +1637,30 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
         enddo ; enddo
       endif ! MEKE%backscatter_Ro_c
 
+    !$acc loop collapse(2) independent
       do j=js,je ; do i=is,ie
         MEKE%mom_src(i,j) = MEKE%mom_src(i,j) + FrictWork(i,j,k)
       enddo ; enddo
 
       if (CS%use_GME .and. associated(MEKE)) then ; if (associated(MEKE%GME_snk)) then
+    !$acc loop collapse(2) independent
         do j=js,je ; do i=is,ie
           MEKE%GME_snk(i,j) = MEKE%GME_snk(i,j) + FrictWork_GME(i,j,k)
         enddo ; enddo
       endif ; endif
 
     endif ; endif ! find_FrictWork and associated(mom_src)
+    !$acc end parallel
 
   enddo ! end of k loop
+
+!$ms adding hor visc clock
+cpu_clock_end(hor_visc_gpu_clock_id)
+
 !$acc end data
+
+
+!print *, 'OUTSIDE K loopp'
 
   ! Offer fields for diagnostic averaging.
   if (CS%id_diffu>0)     call post_data(CS%id_diffu, diffu, CS%diag)
@@ -1538,6 +1694,8 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
     enddo
     call post_data(CS%id_FrictWorkIntz, FrictWorkIntz, CS%diag)
   endif
+
+!print *, 'Now we are at the end of the hor_visc'
 
 end subroutine horizontal_viscosity
 
@@ -1624,6 +1782,9 @@ subroutine hor_visc_init(Time, G, US, param_file, diag, CS, MEKE)
   allocate(CS)
 
   CS%diag => diag
+
+!$ms adding hor visc clock
+hor_visc_gpu_clock_id = cpu_clock_id("HOR VISC clock", grain=CLOCK_MODULE)
 
   ! Read parameters and write them to the model log.
   call log_version(param_file, mdl, version, "")
@@ -2339,6 +2500,7 @@ end subroutine align_aniso_tensor_to_grid
 !> Apply a 1-1-4-1-1 Laplacian filter one time on GME diffusive flux to reduce any
 !! horizontal two-grid-point noise
 subroutine smooth_GME(CS,G,GME_flux_h,GME_flux_q)
+!$acc routine seq
   ! Arguments
   type(hor_visc_CS),                            pointer       :: CS        !< Control structure
   type(ocean_grid_type),                        intent(in)    :: G         !< Ocean grid
@@ -2357,7 +2519,7 @@ subroutine smooth_GME(CS,G,GME_flux_h,GME_flux_q)
 
     ! Update halos
     if (present(GME_flux_h)) then
-      call pass_var(GME_flux_h, G%Domain)
+!      call pass_var(GME_flux_h, G%Domain)
       GME_flux_h_original = GME_flux_h
       ! apply smoothing on GME
       do j = G%jsc, G%jec
@@ -2382,7 +2544,7 @@ subroutine smooth_GME(CS,G,GME_flux_h,GME_flux_q)
 
     ! Update halos
     if (present(GME_flux_q)) then
-      call pass_var(GME_flux_q, G%Domain, position=CORNER, complete=.true.)
+!      call pass_var(GME_flux_q, G%Domain, position=CORNER, complete=.true.)
       GME_flux_q_original = GME_flux_q
       ! apply smoothing on GME
       do J = G%JscB, G%JecB

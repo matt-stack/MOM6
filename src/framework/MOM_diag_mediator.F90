@@ -1455,6 +1455,7 @@ end subroutine post_data_2d_low
 
 !> Make a real 3-d array diagnostic available for averaging or output.
 subroutine post_data_3d(diag_field_id, field, diag_cs, is_static, mask, alt_h)
+!!$acc routine seq
 
   integer,           intent(in) :: diag_field_id !< The id for an output variable returned by a
                                                  !! previous call to register_diag_field.
